@@ -20,6 +20,7 @@ def construct_lookup_queries(cls: Type["Document"]) -> List[Dict[str, Any]]:
                             "from": link_info.model_class.get_motor_collection().name,  # type: ignore
                             "localField": f"{link_info.field}.$id",
                             "foreignField": "_id",
+                            "pipeline": [{"$set": {"id": "$_id"}}],
                             "as": f"_link_{link_info.field}",
                         }
                     },
@@ -53,6 +54,7 @@ def construct_lookup_queries(cls: Type["Document"]) -> List[Dict[str, Any]]:
                             "from": link_info.model_class.get_motor_collection().name,  # type: ignore
                             "localField": f"{link_info.field}.$id",
                             "foreignField": "_id",
+                            "pipeline": [{"$set": {"id": "$_id"}}],
                             "as": link_info.field,
                         }
                     }

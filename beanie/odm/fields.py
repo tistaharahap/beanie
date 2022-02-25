@@ -147,6 +147,10 @@ class Link(Generic[T]):
         self.ref = ref
         self.model_class = model_class
 
+    @property
+    def id(self):
+        return self.ref.id
+
     async def fetch(self) -> Union[T, "Link"]:
         result = await self.model_class.get(self.ref.id)  # type: ignore
         return result or self

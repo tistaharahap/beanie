@@ -100,21 +100,38 @@ class TestFind:
 
         assert len(houses) == 2
 
-    async def test_prefetch_find_one(self, house):
-        house = await House.find_one(House.name == "test")
-        for window in house.windows:
+    async def test_prefetch_find_one(self, houses):
+        house = await House.find_one(House.height == 1)
+
+        print(house.door.id)
+
+        found_house = await House.find_one({"door.$id": house.door.id})
+        assert found_house.id == house.id
+
+        found_house = await House.find_one(House.door.id == house.door.id)
+        assert found_house.id == house.id
+
+        found_house = await House.find_one(
+            House.door.id == house.door.id, fetch_links=True
+        )
+        assert found_house.id == house.id
+
+        found_house = await House.find_one(House.height == 5)
+        assert found_house.height == 5
+        for window in found_house.windows:
             assert isinstance(window, Link)
-        assert isinstance(house.door, Link)
+        assert isinstance(found_house.door, Link)
 
-        house = await House.find_one(House.name == "test", fetch_links=True)
-        for window in house.windows:
+        found_house = await House.find_one(House.height == 5, fetch_links=True)
+        assert found_house.height == 5
+        for window in found_house.windows:
             assert isinstance(window, Window)
-        assert isinstance(house.door, Door)
+        assert isinstance(found_house.door, Door)
 
-        house = await House.get(house.id, fetch_links=True)
-        for window in house.windows:
+        found_house = await House.get(found_house.id, fetch_links=True)
+        for window in found_house.windows:
             assert isinstance(window, Window)
-        assert isinstance(house.door, Door)
+        assert isinstance(found_house.door, Door)
 
     async def test_fetch(self, house):
         house = await House.find_one(House.name == "test")

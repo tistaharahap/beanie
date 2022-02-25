@@ -594,12 +594,11 @@ class FindMany(
             }
             if sort_pipeline["$sort"]:
                 aggregation_pipeline.append(sort_pipeline)
+            aggregation_pipeline.append({"$match": self.get_filter_query()})
             if self.skip_number != 0:
                 aggregation_pipeline.append({"$skip": self.skip_number})
             if self.limit_number != 0:
                 aggregation_pipeline.append({"$limit": self.limit_number})
-
-            aggregation_pipeline.append({"$match": self.get_filter_query()})
 
             aggregation_pipeline.append(
                 {"$project": get_projection(self.projection_model)}
@@ -812,21 +811,9 @@ class FindOne(FindQuery[FindQueryResultType]):
 
     async def _find_one(self):
         if self.fetch_links:
-            lookup_queries = construct_lookup_queries(self.document_model)
-            result = (
-                await self.document_model.find(*self.find_expressions)
-                .aggregate(
-                    aggregation_pipeline=lookup_queries,
-                    projection_model=self.projection_model,
-                    session=self.session,
-                    **self.pymongo_kwargs,
-                )
-                .to_list(length=1)
-            )
-            if result:
-                return result[0]
-            else:
-                return None
+            return await self.document_model.find(
+                *self.find_expressions, fetch_links=True
+            ).first_or_none()
         return await self.document_model.get_motor_collection().find_one(
             filter=self.get_filter_query(),
             projection=get_projection(self.projection_model),
