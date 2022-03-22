@@ -83,25 +83,16 @@ DocType = TypeVar("DocType", bound="Document")
 DocumentProjectionType = TypeVar("DocumentProjectionType", bound=BaseModel)
 
 
-class Document(BaseModel, UpdateMethods):
-    """
-    Document Mapping class.
+class DocumentMeta(BaseModel):
+    # Stored meta
 
-    Fields:
+    revision_id: UUID = Field(default_factory=uuid4())
+    document_class: str
+    fields_hash: str
 
-    - `id` - MongoDB document ObjectID "_id" field.
-    Mapped to the PydanticObjectId class
-
-    Inherited from:
-
-    - Pydantic BaseModel
-    - [UpdateMethods](https://roman-right.github.io/beanie/api/interfaces/#aggregatemethods)
-    """
-
-    id: Optional[PydanticObjectId] = None
+    # Local meta
 
     # State
-    revision_id: Optional[UUID] = Field(default=None, hidden=True)
     _previous_revision_id: Optional[UUID] = PrivateAttr(default=None)
     _saved_state: Optional[Dict[str, Any]] = PrivateAttr(default=None)
 
@@ -122,9 +113,29 @@ class Document(BaseModel, UpdateMethods):
     # Other
     _hidden_fields: ClassVar[Set[str]] = set()
 
+
+class Document(BaseModel, UpdateMethods):
+    """
+    Document Mapping class.
+
+    Fields:
+
+    - `id` - MongoDB document ObjectID "_id" field.
+    Mapped to the PydanticObjectId class
+    - `beanie_meta` - stored and local meta data
+
+    Inherited from:
+
+    - Pydantic BaseModel
+    - [UpdateMethods](https://roman-right.github.io/beanie/api/interfaces/#aggregatemethods)
+    """
+
+    id: Optional[PydanticObjectId] = None
+    beanie_meta: DocumentMeta
+
     def swap_revision(self):
-        self._previous_revision_id = self.revision_id
-        self.revision_id = uuid4()
+        self.beanie_meta._previous_revision_id = self.beanie_meta.revision_id
+        self.beanie_meta.revision_id = uuid4()
 
     def __init__(self, *args, **kwargs):
         super(Document, self).__init__(*args, **kwargs)
@@ -337,7 +348,9 @@ class Document(BaseModel, UpdateMethods):
         :param **pymongo_kwargs: pymongo native parameters for find operation (if Document class contains links, this parameter must fit the respective parameter of the aggregate MongoDB function)
         :return: [FindOne](https://roman-right.github.io/beanie/api/queries/#findone) - find query instance
         """
-        return cls._find_one_query_class(document_model=cls).find_one(
+        return cls.beanie_meta._find_one_query_class(
+            document_model=cls
+        ).find_one(
             *args,
             projection_model=projection_model,
             session=session,
@@ -405,7 +418,9 @@ class Document(BaseModel, UpdateMethods):
         :param **pymongo_kwargs: pymongo native parameters for find operation (if Document class contains links, this parameter must fit the respective parameter of the aggregate MongoDB function)
         :return: [FindMany](https://roman-right.github.io/beanie/api/queries/#findmany) - query instance
         """
-        return cls._find_many_query_class(document_model=cls).find_many(
+        return cls.beanie_meta._find_many_query_class(
+            document_model=cls
+        ).find_many(
             *args,
             sort=sort,
             skip=skip,
@@ -647,7 +662,7 @@ class Document(BaseModel, UpdateMethods):
         find_query: Dict[str, Any] = {"_id": self.id}
 
         if use_revision_id and not ignore_revision:
-            find_query["revision_id"] = self._previous_revision_id
+            find_query["revision_id"] = self.beanie_meta._previous_revision_id
         try:
             await self.find_one(find_query).replace_one(
                 self,
@@ -771,7 +786,7 @@ class Document(BaseModel, UpdateMethods):
         find_query: Dict[str, Any] = {"_id": self.id}
 
         if use_revision_id and not ignore_revision:
-            find_query["revision_id"] = self._previous_revision_id
+            find_query["revision_id"] = self.beanie_meta._previous_revision_id
 
         result = await self.find_one(find_query).update(
             *args, session=session, bulk_writer=bulk_writer, **pymongo_kwargs
@@ -958,14 +973,14 @@ class Document(BaseModel, UpdateMethods):
         :return: None
         """
         if self.use_state_management():
-            self._saved_state = get_dict(self)
+            self.beanie_meta._saved_state = get_dict(self)
 
     def get_saved_state(self) -> Optional[Dict[str, Any]]:
         """
         Saved state getter. It is protected property.
         :return: Optional[Dict[str, Any]] - saved state
         """
-        return self._saved_state
+        return self.beanie_meta._saved_state
 
     @classmethod
     def _parse_obj_saving_state(cls: Type[DocType], obj: Any) -> DocType:
@@ -982,7 +997,7 @@ class Document(BaseModel, UpdateMethods):
     @property  # type: ignore
     @saved_state_needed
     def is_changed(self) -> bool:
-        if self._saved_state == get_dict(self, to_db=True):
+        if self.beanie_meta._saved_state == get_dict(self, to_db=True):
             return False
         return True
 
@@ -1027,13 +1042,13 @@ class Document(BaseModel, UpdateMethods):
     @saved_state_needed
     def get_changes(self) -> Dict[str, Any]:
         return self._collect_updates(
-            self._saved_state, get_dict(self, to_db=True)  # type: ignore
+            self.beanie_meta._saved_state, get_dict(self, to_db=True)  # type: ignore
         )
 
     @saved_state_needed
     def rollback(self) -> None:
         if self.is_changed:
-            for key, value in self._saved_state.items():  # type: ignore
+            for key, value in self.beanie_meta._saved_state.items():  # type: ignore
                 if key == "_id":
                     setattr(self, "id", value)
                 else:
@@ -1059,17 +1074,17 @@ class Document(BaseModel, UpdateMethods):
         Init class fields
         :return: None
         """
-        if cls._link_fields is None:
-            cls._link_fields = {}
+        if cls.beanie_meta._link_fields is None:
+            cls.beanie_meta._link_fields = {}
         for k, v in cls.__fields__.items():
             path = v.alias or v.name
             setattr(cls, k, ExpressionField(path))
 
             link_info = detect_link(v)
             if link_info is not None:
-                cls._link_fields[v.name] = link_info
+                cls.beanie_meta._link_fields[v.name] = link_info
 
-        cls._hidden_fields = cls.get_hidden_fields()
+        cls.beanie_meta._hidden_fields = cls.get_hidden_fields()
 
     @classmethod
     async def init_settings(
@@ -1083,7 +1098,7 @@ class Document(BaseModel, UpdateMethods):
         :return: None
         """
         # TODO looks ugly a little. Too many parameters transfers.
-        cls._document_settings = await DocumentSettings.init(
+        cls.beanie_meta._document_settings = await DocumentSettings.init(
             database=database,
             document_model=cls,
             allow_index_dropping=allow_index_dropping,
@@ -1133,9 +1148,9 @@ class Document(BaseModel, UpdateMethods):
 
         :return: DocumentSettings class
         """
-        if cls._document_settings is None:
+        if cls.beanie_meta._document_settings is None:
             raise CollectionWasNotInitialized
-        return cls._document_settings
+        return cls.beanie_meta._document_settings
 
     @classmethod
     def get_motor_collection(cls) -> AsyncIOMotorCollection:
@@ -1199,11 +1214,14 @@ class Document(BaseModel, UpdateMethods):
         """
         if exclude_hidden:
             if isinstance(exclude, AbstractSet):
-                exclude = {*self._hidden_fields, *exclude}
+                exclude = {*self.beanie_meta._hidden_fields, *exclude}
             elif isinstance(exclude, Mapping):
-                exclude = dict({k: True for k in self._hidden_fields}, **exclude)  # type: ignore
+                exclude = dict(
+                    {k: True for k in self.beanie_meta._hidden_fields},
+                    **exclude,
+                )  # type: ignore
             elif exclude is None:
-                exclude = self._hidden_fields
+                exclude = self.beanie_meta._hidden_fields
         return super().dict(
             include=include,
             exclude=exclude,
@@ -1244,7 +1262,7 @@ class Document(BaseModel, UpdateMethods):
 
     @classmethod
     def get_link_fields(cls) -> Optional[Dict[str, LinkInfo]]:
-        return cls._link_fields
+        return cls.beanie_meta._link_fields
 
     class Config:
         json_encoders = {
@@ -1257,5 +1275,5 @@ class Document(BaseModel, UpdateMethods):
         def schema_extra(
             schema: Dict[str, Any], model: Type["Document"]
         ) -> None:
-            for field_name in model._hidden_fields:
+            for field_name in model.beanie_meta._hidden_fields:
                 schema.get("properties", {}).pop(field_name, None)

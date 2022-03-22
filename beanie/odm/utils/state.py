@@ -13,7 +13,7 @@ def check_if_state_saved(self: "DocType"):
         raise StateManagementIsTurnedOff(
             "State management is turned off for this document"
         )
-    if self._saved_state is None:
+    if self.beanie_meta._saved_state is None:
         raise StateNotSaved("No state was saved")
 
 
